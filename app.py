@@ -99,8 +99,7 @@ if st.session_state.df is not None:
         for name, clf in classifiers.items():
             clf.fit(X_train, y_train)
             y_pred = clf.predict(X_test)
-            # Ensure predictions are in NumPy array format
-            model_predictions[name] = np.array(y_pred)
+            model_predictions[name] = y_pred
             acc = accuracy_score(y_test, y_pred)
             ci = compute_confidence_interval(acc, len(y_test))
             results[name] = {
@@ -131,7 +130,7 @@ if st.session_state.df is not None:
             "Precision": precision_score(y_test, y_pred, average='weighted'),
             "Recall": recall_score(y_test, y_pred, average='weighted'),
             "F1 Score": f1_score(y_test, y_pred, average='weighted')
-        }, np.array(y_pred)  # Ensure predictions are in NumPy array format
+        }, y_pred
 
     if st.button("Train Models"):
         X, y = preprocess_data(df)
@@ -158,34 +157,14 @@ if st.session_state.df is not None:
         # Paired t-test analysis
         st.subheader("Paired t-test Analysis")
         model_names = list(model_predictions.keys())
-
-        # Add DNN predictions to the model_predictions dictionary
-        model_predictions["DNN"] = dnn_predictions
-
-        # Debugging: Print shapes of predictions
-        st.write("### Debugging: Shapes of Predictions")
-        for model, preds in model_predictions.items():
-            st.write(f"{model}: {len(preds)} predictions")
-
-        # Perform paired t-test for all model pairs
         for i in range(len(model_names)):
             for j in range(i + 1, len(model_names)):
                 model1 = model_names[i]
                 model2 = model_names[j]
-                
-                # Ensure predictions are of the same length
-                if len(model_predictions[model1]) != len(model_predictions[model2]):
-                    st.error(f"Predictions length mismatch: {model1} ({len(model_predictions[model1])}) vs {model2} ({len(model_predictions[model2])})")
-                    continue
-                
-                # Perform paired t-test
-                try:
-                    t_stat, p_value = ttest_rel(model_predictions[model1], model_predictions[model2])
-                    st.write(f"**{model1} vs {model2}**")
-                    st.write(f"T-statistic: {t_stat:.4f}, P-value: {p_value:.4f}")
-                    if p_value < 0.05:
-                        st.write(f"There is a significant difference between {model1} and {model2} (p < 0.05).")
-                    else:
-                        st.write(f"There is no significant difference between {model1} and {model2} (p >= 0.05).")
-                except Exception as e:
-                    st.error(f"Error performing t-test for {model1} vs {model2}: {e}")
+                t_stat, p_value = ttest_rel(model_predictions[model1], model_predictions[model2])
+                st.write(f"**{model1} vs {model2}**")
+                st.write(f"T-statistic: {t_stat:.4f}, P-value: {p_value:.4f}")
+                if p_value < 0.05:
+                    st.write(f"There is a significant difference between {model1} and {model2} (p < 0.05).")
+                else:
+                    st.write(f"There is no significant difference between {model1} and {model2} (p >= 0.05).")
