@@ -23,7 +23,7 @@ GITHUB_REPO = "learning-feedback"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/"
 
 # Streamlit App Title
-st.title("\ud83d\udcda \ud83c\udf93 EduPredict \ud83c\udf93 \ud83d\udcda\nBoosting academic intelligence through AI")
+st.title("📚 🎓 EduPredict 🎓 📚\nBoosting academic intelligence through AI")
 
 # Function to fetch CSV files from GitHub repository
 def fetch_github_csv_files():
@@ -79,6 +79,12 @@ if st.session_state.df is not None:
             X = pd.concat([X, X_cat], axis=1)
         return X, y
 
+    def compute_confidence_interval(acc, n):
+        se = np.sqrt((acc * (1 - acc)) / n)
+        ci_lower = acc - 1.96 * se
+        ci_upper = acc + 1.96 * se
+        return (ci_lower, ci_upper)
+
     def train_models(X_train, X_test, y_train, y_test):
         classifiers = {
             'AdaBoost': AdaBoostClassifier(),
@@ -88,18 +94,24 @@ if st.session_state.df is not None:
             'CatBoost': CatBoostClassifier(verbose=0)
         }
         results = {}
+        model_accuracies = []
         model_predictions = {}
         for name, clf in classifiers.items():
             clf.fit(X_train, y_train)
             y_pred = clf.predict(X_test)
-            model_predictions[name] = y_pred.astype(int)
+            # Ensure predictions are in NumPy array format and of type int
+            model_predictions[name] = np.array(y_pred, dtype=int)
+            acc = accuracy_score(y_test, y_pred)
+            ci = compute_confidence_interval(acc, len(y_test))
             results[name] = {
-                "Accuracy": accuracy_score(y_test, y_pred),
+                "Accuracy": acc,
+                "Confidence Interval (95%)": ci,
                 "Precision": precision_score(y_test, y_pred, average='weighted'),
                 "Recall": recall_score(y_test, y_pred, average='weighted'),
                 "F1 Score": f1_score(y_test, y_pred, average='weighted')
             }
-        return results, model_predictions
+            model_accuracies.append(acc)
+        return results, model_accuracies, model_predictions
 
     def train_dnn(X_train, X_test, y_train, y_test):
         model = Sequential([
@@ -111,25 +123,69 @@ if st.session_state.df is not None:
         model.compile(optimizer=Adam(), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         model.fit(X_train, y_train, epochs=50, batch_size=16, verbose=0, validation_split=0.2)
         y_pred = np.argmax(model.predict(X_test), axis=1)
+        acc = accuracy_score(y_test, y_pred)
+        ci = compute_confidence_interval(acc, len(y_test))
         return {
-            "Accuracy": accuracy_score(y_test, y_pred),
+            "Accuracy": acc,
+            "Confidence Interval (95%)": ci,
             "Precision": precision_score(y_test, y_pred, average='weighted'),
             "Recall": recall_score(y_test, y_pred, average='weighted'),
             "F1 Score": f1_score(y_test, y_pred, average='weighted')
-        }, y_pred.astype(int)
+        }, np.array(y_pred, dtype=int)  # Ensure predictions are in NumPy array format and of type int
 
     if st.button("Train Models"):
         X, y = preprocess_data(df)
         smote = SMOTE()
         X_resampled, y_resampled = smote.fit_resample(X, y)
         X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
-        model_results, model_predictions = train_models(X_train, X_test, y_train, y_test)
+        model_results, accuracies, model_predictions = train_models(X_train, X_test, y_train, y_test)
         dnn_results, dnn_predictions = train_dnn(X_train, X_test, y_train, y_test)
-        model_predictions["DNN"] = dnn_predictions
-        
+        st.subheader("Evaluation Results for Machine Learning Models")
+        for model, metrics in model_results.items():
+            st.write(f"**{model}**")
+            st.write(metrics)
+        st.subheader("Evaluation Results for Deep Neural Network")
+        st.write(dnn_results)
+        st.write("### Model Accuracy with Confidence Intervals")
+        models = list(model_results.keys()) + ["DNN"]
+        accuracies.append(dnn_results["Accuracy"])
+        plt.figure(figsize=(10, 5))
+        sns.barplot(x=models, y=accuracies, ci=95)
+        plt.ylabel("Accuracy")
+        plt.xticks(rotation=45)
+        st.pyplot(plt)
+
+        # Paired t-test analysis
         st.subheader("Paired t-test Analysis")
         model_names = list(model_predictions.keys())
+
+        # Add DNN predictions to the model_predictions dictionary
+        model_predictions["DNN"] = dnn_predictions
+
+        # Debugging: Print shapes of predictions
+        st.write("### Debugging: Shapes of Predictions")
+        for model, preds in model_predictions.items():
+            st.write(f"{model}: {len(preds)} predictions")
+
+        # Perform paired t-test for all model pairs
         for i in range(len(model_names)):
             for j in range(i + 1, len(model_names)):
-                t_stat, p_value = ttest_rel(model_predictions[model_names[i]], model_predictions[model_names[j]])
-                st.write(f"**{model_names[i]} vs {model_names[j]}**: T-stat={t_stat:.4f}, P-value={p_value:.4f}")
+                model1 = model_names[i]
+                model2 = model_names[j]
+                
+                # Ensure predictions are of the same length
+                if len(model_predictions[model1]) != len(model_predictions[model2]):
+                    st.error(f"Predictions length mismatch: {model1} ({len(model_predictions[model1])}) vs {model2} ({len(model_predictions[model2])})")
+                    continue
+                
+                # Perform paired t-test
+                try:
+                    t_stat, p_value = ttest_rel(model_predictions[model1], model_predictions[model2])
+                    st.write(f"**{model1} vs {model2}**")
+                    st.write(f"T-statistic: {t_stat:.4f}, P-value: {p_value:.4f}")
+                    if p_value < 0.05:
+                        st.write(f"There is a significant difference between {model1} and {model2} (p < 0.05).")
+                    else:
+                        st.write(f"There is no significant difference between {model1} and {model2} (p >= 0.05).")
+                except Exception as e:
+                    st.error(f"Error performing t-test for {model1} vs {model2}: {e}")
