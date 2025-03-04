@@ -122,13 +122,7 @@ if st.session_state.df is not None:
         y_pred = np.argmax(model.predict(X_test), axis=1)
         acc = accuracy_score(y_test, y_pred)
         ci = compute_confidence_interval(acc, len(y_test))
-        return {
-            "Accuracy": acc,
-            "Confidence Interval (95%)": ci,
-            "Precision": precision_score(y_test, y_pred, average='weighted'),
-            "Recall": recall_score(y_test, y_pred, average='weighted'),
-            "F1 Score": f1_score(y_test, y_pred, average='weighted')
-        }
+        return acc
 
     if st.button("Train Models"):
         X, y = preprocess_data(df)
@@ -136,16 +130,15 @@ if st.session_state.df is not None:
         X_resampled, y_resampled = smote.fit_resample(X, y)
         X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
         model_results, accuracies = train_models(X_train, X_test, y_train, y_test)
-        dnn_results = train_dnn(X_train, X_test, y_train, y_test)
-        st.subheader("Evaluation Results for Machine Learning Models")
-        for model, metrics in model_results.items():
-            st.write(f"**{model}**")
-            st.write(metrics)
-        st.subheader("Evaluation Results for Deep Neural Network")
-        st.write(dnn_results)
-        st.write("### Model Accuracy with Confidence Intervals")
+        dnn_accuracy = train_dnn(X_train, X_test, y_train, y_test)
+        accuracies.append(dnn_accuracy)
         models = list(model_results.keys()) + ["DNN"]
-        accuracies.append(dnn_results["Accuracy"])
+        
+        st.subheader("Paired t-Test Results")
+        for i in range(len(models) - 1):
+            t_stat, p_value = ttest_rel([accuracies[i]], [dnn_accuracy])
+            st.write(f"{models[i]} vs. DNN: t-statistic = {t_stat}, p-value = {p_value}")
+        
         plt.figure(figsize=(10, 5))
         sns.barplot(x=models, y=accuracies, ci=95)
         plt.ylabel("Accuracy")
