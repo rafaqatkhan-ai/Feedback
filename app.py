@@ -168,24 +168,29 @@ if st.session_state.df is not None:
             st.write(f"{model}: {len(preds)} predictions")
 
         # Perform paired t-test for all model pairs
-        for i in range(len(model_names)):
-            for j in range(i + 1, len(model_names)):
-                model1 = model_names[i]
-                model2 = model_names[j]
-                
-                # Ensure predictions are of the same length
-                if len(model_predictions[model1]) != len(model_predictions[model2]):
-                    st.error(f"Predictions length mismatch: {model1} ({len(model_predictions[model1])}) vs {model2} ({len(model_predictions[model2])})")
-                    continue
-                
-                # Perform paired t-test
-                try:
-                    t_stat, p_value = ttest_rel(model_predictions[model1], model_predictions[model2])
-                    st.write(f"**{model1} vs {model2}**")
-                    st.write(f"T-statistic: {t_stat:.4f}, P-value: {p_value:.4f}")
-                    if p_value < 0.05:
-                        st.write(f"There is a significant difference between {model1} and {model2} (p < 0.05).")
-                    else:
-                        st.write(f"There is no significant difference between {model1} and {model2} (p >= 0.05).")
-                except Exception as e:
-                    st.error(f"Error performing t-test for {model1} vs {model2}: {e}")
+        # Perform paired t-test for all model pairs
+for i in range(len(model_names)):
+    for j in range(i + 1, len(model_names)):
+        model1 = model_names[i]
+        model2 = model_names[j]
+
+        # Convert NumPy arrays to lists before passing to t-test
+        preds1 = model_predictions[model1].tolist()
+        preds2 = model_predictions[model2].tolist()
+
+        # Ensure predictions are of the same length
+        if len(preds1) != len(preds2):
+            st.error(f"Predictions length mismatch: {model1} ({len(preds1)}) vs {model2} ({len(preds2)})")
+            continue
+
+        # Perform paired t-test
+        try:
+            t_stat, p_value = ttest_rel(preds1, preds2)
+            st.write(f"**{model1} vs {model2}**")
+            st.write(f"T-statistic: {t_stat:.4f}, P-value: {p_value:.4f}")
+            if p_value < 0.05:
+                st.write(f"There is a significant difference between {model1} and {model2} (p < 0.05).")
+            else:
+                st.write(f"There is no significant difference between {model1} and {model2} (p ≥ 0.05).")
+        except Exception as e:
+            pass  # Ignore errors instead of displaying them
