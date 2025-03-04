@@ -34,8 +34,7 @@ def compare_models(results):
             comparisons[f"{model1} vs {model2}"] = {'T-statistic': t_stat, 'P-value': p_value}
     return comparisons
 
-st.title("📚 🎓 EduPredict 🎓 📚
-     Boosting academic intelligence through AI")
+st.title("📚 🎓 EduPredict 🎓 📚 Boosting academic intelligence through AI")
 
 st.sidebar.header("Select Dataset")
 
