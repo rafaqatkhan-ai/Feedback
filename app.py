@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+from scipy import stats
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -13,53 +14,72 @@ from catboost import CatBoostClassifier
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.optimizers import Adam
-from scipy.stats import ttest_ind, sem, t
 
-def compute_confidence_interval(data, confidence=0.95):
-    n = len(data)
-    mean = np.mean(data)
-    std_err = sem(data)
-    h = std_err * t.ppf((1 + confidence) / 2, n - 1)
-    return mean, mean - h, mean + h
+# GitHub repository details
+GITHUB_USER = "rafaqatkhan-ai"
+GITHUB_REPO = "learning-feedback"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/"
 
-# Function to perform t-tests between models
-def compare_models(results):
-    models = list(results.keys())
-    scores = {model: results[model]['Accuracy'] for model in models}
-    comparisons = {}
-    for i in range(len(models)):
-        for j in range(i + 1, len(models)):
-            model1, model2 = models[i], models[j]
-            t_stat, p_value = ttest_ind(scores[model1], scores[model2])
-            comparisons[f"{model1} vs {model2}"] = {'T-statistic': t_stat, 'P-value': p_value}
-    return comparisons
+# Streamlit App Title
+st.title("\U0001F4DA \U0001F393 EduPredict \U0001F393 \U0001F4DA\nBoosting academic intelligence through AI")
 
-st.title("📚 🎓 EduPredict 🎓 📚 Boosting academic intelligence through AI")
+# Function to fetch CSV files from GitHub repository
+def fetch_github_csv_files():
+    repo_api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents"
+    try:
+        response = requests.get(repo_api_url)
+        if response.status_code == 200:
+            files = response.json()
+            csv_files = [file['download_url'] for file in files if file['name'].endswith('.csv')]
+            return csv_files
+        else:
+            st.error(f"Failed to fetch files from GitHub: {response.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"Error fetching files: {e}")
+        return []
 
+# Load dataset (either from GitHub or uploaded file)
 st.sidebar.header("Select Dataset")
 
-uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
+github_csv_files = fetch_github_csv_files()
+selected_github_csv = st.sidebar.selectbox("Choose a dataset from GitHub:", ["None"] + github_csv_files)
+uploaded_file = st.sidebar.file_uploader("Or Upload a CSV file", type=["csv"])
+
+if "df" not in st.session_state:
+    st.session_state.df = None
+
+if selected_github_csv != "None":
+    st.session_state.df = pd.read_csv(selected_github_csv)
+    st.sidebar.success(f"Loaded dataset from GitHub: {selected_github_csv}")
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    st.session_state.df = pd.read_csv(uploaded_file)
     st.sidebar.success("Uploaded dataset loaded successfully!")
+
+if st.session_state.df is not None:
+    df = st.session_state.df
     st.write("### Dataset Preview")
     st.write(df.head())
-    
+
     def preprocess_data(df):
         X = df.iloc[:, :-1].copy()
         y = df.iloc[:, -1].copy()
+
         cat_cols = X.select_dtypes(include=['object']).columns
         num_cols = X.select_dtypes(exclude=['object']).columns
+
         if len(num_cols) > 0:
             scaler = StandardScaler()
             X[num_cols] = scaler.fit_transform(X[num_cols])
+
         if len(cat_cols) > 0:
             encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
             X_cat = pd.DataFrame(encoder.fit_transform(X[cat_cols]))
             X_cat.columns = encoder.get_feature_names_out(cat_cols)
             X = X.drop(columns=cat_cols).reset_index(drop=True)
             X = pd.concat([X, X_cat], axis=1)
+
         return X, y
 
     def train_models(X_train, X_test, y_train, y_test):
@@ -71,11 +91,16 @@ if uploaded_file is not None:
             'CatBoost': CatBoostClassifier(verbose=0)
         }
         results = {}
+
         for name, clf in classifiers.items():
             clf.fit(X_train, y_train)
             y_pred = clf.predict(X_test)
+            acc = accuracy_score(y_test, y_pred)
+            ci = stats.norm.interval(0.95, loc=acc, scale=np.sqrt((acc * (1 - acc)) / len(y_test)))
+
             results[name] = {
-                "Accuracy": accuracy_score(y_test, y_pred),
+                "Accuracy": acc,
+                "Confidence Interval (95%)": ci,
                 "Precision": precision_score(y_test, y_pred, average='weighted'),
                 "Recall": recall_score(y_test, y_pred, average='weighted'),
                 "F1 Score": f1_score(y_test, y_pred, average='weighted')
@@ -92,8 +117,12 @@ if uploaded_file is not None:
         model.compile(optimizer=Adam(), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         model.fit(X_train, y_train, epochs=50, batch_size=16, verbose=0, validation_split=0.2)
         y_pred = np.argmax(model.predict(X_test), axis=1)
+
+        acc = accuracy_score(y_test, y_pred)
+        ci = stats.norm.interval(0.95, loc=acc, scale=np.sqrt((acc * (1 - acc)) / len(y_test)))
         return {
-            "Accuracy": accuracy_score(y_test, y_pred),
+            "Accuracy": acc,
+            "Confidence Interval (95%)": ci,
             "Precision": precision_score(y_test, y_pred, average='weighted'),
             "Recall": recall_score(y_test, y_pred, average='weighted'),
             "F1 Score": f1_score(y_test, y_pred, average='weighted')
@@ -102,29 +131,21 @@ if uploaded_file is not None:
     if st.button("Train Models"):
         st.write("Starting training... ⏳")
         try:
-            X, y = preprocess_data(df)
-            smote = SMOTE()
-            X_resampled, y_resampled = smote.fit_resample(X, y)
-            X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
-            model_results = train_models(X_train, X_test, y_train, y_test)
-            st.subheader("Evaluation Results for Machine Learning Models")
-            for model, metrics in model_results.items():
-                mean_acc, lower_ci, upper_ci = compute_confidence_interval([metrics["Accuracy"]])
-                st.write(f"**{model}** - Accuracy: {mean_acc:.3f} (95% CI: {lower_ci:.3f}-{upper_ci:.3f})")
-                st.write(metrics)
-            dnn_results = train_dnn(X_train, X_test, y_train, y_test)
-            mean_acc, lower_ci, upper_ci = compute_confidence_interval([dnn_results["Accuracy"]])
-            st.subheader("Evaluation Results for Deep Neural Network")
-            st.write(f"Accuracy: {mean_acc:.3f} (95% CI: {lower_ci:.3f}-{upper_ci:.3f})")
-            st.write(dnn_results)
-            comparisons = compare_models(model_results)
-            st.subheader("Model Comparisons (T-Test)")
-            for comp, vals in comparisons.items():
-                st.write(f"{comp}: T-statistic = {vals['T-statistic']:.3f}, P-value = {vals['P-value']:.3f}")
-                if vals['P-value'] < 0.05:
-                    st.write("✅ Statistically significant difference!")
-                else:
-                    st.write("❌ No significant difference.")
-            st.success("🎉 Training Completed Successfully!")
+            if df is None or df.empty:
+                st.error("No dataset is loaded. Please upload or select a dataset!")
+            else:
+                X, y = preprocess_data(df)
+                smote = SMOTE()
+                X_resampled, y_resampled = smote.fit_resample(X, y)
+                X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
+                model_results = train_models(X_train, X_test, y_train, y_test)
+                st.subheader("Evaluation Results for Machine Learning Models")
+                for model, metrics in model_results.items():
+                    st.write(f"**{model}**")
+                    st.write(metrics)
+                dnn_results = train_dnn(X_train, X_test, y_train, y_test)
+                st.subheader("Evaluation Results for Deep Neural Network")
+                st.write(dnn_results)
+                st.success("🎉 Training Completed Successfully!")
         except Exception as e:
             st.error(f"An error occurred during training: {e}")
