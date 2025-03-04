@@ -99,7 +99,8 @@ if st.session_state.df is not None:
         for name, clf in classifiers.items():
             clf.fit(X_train, y_train)
             y_pred = clf.predict(X_test)
-            model_predictions[name] = y_pred
+            # Ensure predictions are in NumPy array format
+            model_predictions[name] = np.array(y_pred)
             acc = accuracy_score(y_test, y_pred)
             ci = compute_confidence_interval(acc, len(y_test))
             results[name] = {
@@ -130,7 +131,7 @@ if st.session_state.df is not None:
             "Precision": precision_score(y_test, y_pred, average='weighted'),
             "Recall": recall_score(y_test, y_pred, average='weighted'),
             "F1 Score": f1_score(y_test, y_pred, average='weighted')
-        }, y_pred
+        }, np.array(y_pred)  # Ensure predictions are in NumPy array format
 
     if st.button("Train Models"):
         X, y = preprocess_data(df)
